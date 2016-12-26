@@ -4,16 +4,37 @@ output: html_notebook
 ---
 
 Functions to interface with [Sumo Reference](http://sumodb.sumogames.de/):
-```{r}
+```{r, message=FALSE, warning=FALSE}
 source("sumodb.R")
+```
+
+```{r, message=FALSE, warning=FALSE}
+library(plotly)
+```
+
+
+&nbsp;  
+&nbsp;  
+&nbsp;  
+Time period we'll be looking at:
+```{r}
+year <- 2015:2016
 ```
 
 &nbsp;  
 &nbsp;  
 &nbsp;  
-[Makuuchi](https://en.wikipedia.org/wiki/Makuuchi) (top division) results in 2016:
+[Makuuchi](https://en.wikipedia.org/wiki/Makuuchi) (top division) results in `r min(year)`---`r max(year)`:
 ```{r}
-bout <- sumodbBoutQuery(basho = "2016", division = "m")
+bout <- do.call(
+	rbind,
+	lapply(
+		year,
+		function(x) sumodbBoutQuery(basho = x, division = "m")
+	)
+)
+  
+head(bout)
 ```
 
 &nbsp;  
@@ -32,8 +53,16 @@ bout %>% count(kimarite) %>% arrange(-n)
 banzuke <- do.call(
 	rbind,
 	lapply(
-		c("01", "03", "05", "07", "09", "11"),
-		function(x) sumodbBanzukeQuery(paste0("2016", x)) %>% mutate(basho = paste("2016", x, sep = "."))
+		apply(
+			expand.grid(
+				year,
+				# six tournaments a year
+				c("01", "03", "05", "07", "09", "11")
+			), 1, paste, collapse = ""
+		),
+		function(x) sumodbBanzukeQuery(x) %>%
+			# change <yyyymm> to <yyyy.mm> to easily join with bout data
+			mutate(basho = gsub("^(.{4})(.{2})$", "\\1\\.\\2", x))
 	)
 ) %>%
 	setNames(tolower(names(.))) %>%
@@ -47,60 +76,107 @@ banzuke <- do.call(
 		weight = as.numeric(str_match(`height/weight`, "([0-9.]+) kg")[, 2])
 	) %>%
 	select(-`height/weight`)
-banzuke
+  
+head(banzuke)
+```
+
+&nbsp;  
+&nbsp;  
+&nbsp;  
+Weight distribution:
+```{r}
+banzuke %>%
+	group_by(rikishi) %>%
+	summarise(weight = mean(weight)) %>%
+	plot_ly() %>%
+	add_histogram(x = ~weight) %>%
+	layout(
+		xaxis = list(
+			title = "Weight (kg)"
+		),
+		yaxis = list(
+			showgrid = FALSE,
+			showticklabels = FALSE
+		)
+	)
+```
+
+&nbsp;  
+&nbsp;  
+&nbsp;  
+Height distribution:
+```{r}
+banzuke %>%
+	group_by(rikishi) %>%
+	summarise(height = mean(height)) %>%
+	plot_ly() %>%
+	add_histogram(x = ~height) %>%
+	layout(
+		xaxis = list(
+			title = "Height (cm)"
+		),
+		yaxis = list(
+			showgrid = FALSE,
+			showticklabels = FALSE
+		)
+	)
 ```
 
 &nbsp;  
 &nbsp;  
 &nbsp;  
 Add height/weight data to bout results:
-```{r}
-suppressMessages(
-	bout <- left_join(
-		left_join(
-			bout %>% mutate(rikishi = ifelse(win1 == 1, shikona1, shikona2)),
-			banzuke
-		) %>%
-			rename(winner.height = height, winner.weight = weight) %>%
-			mutate(rikishi = ifelse(win1 == 0, shikona1, shikona2)),
+```{r, message=FALSE}
+bout <- left_join(
+	left_join(
+		bout %>% mutate(rikishi = ifelse(win1 == 1, shikona1, shikona2)),
 		banzuke
 	) %>%
-		rename(loser.height = height, loser.weight = weight)
-)
-bout
+		rename(winner.height = height, winner.weight = weight) %>%
+		mutate(rikishi = ifelse(win1 == 0, shikona1, shikona2)),
+	banzuke
+) %>%
+	rename(loser.height = height, loser.weight = weight)
 ```
 
 &nbsp;  
 &nbsp;  
 &nbsp;  
 Bundle less frequent kimarite as *other*:
-```{r}
-suppressMessages(
-	bout <- inner_join(
-		bout,
-		bout %>%
-			count(kimarite) %>%
-			arrange(-n) %>%
-			mutate(
-				freq_rank = row_number(),
-				kimarite2 = ifelse(freq_rank > 7, "other", kimarite)
-			)
-	)
+```{r, message=FALSE}
+bout <- inner_join(
+	bout,
+	bout %>%
+		count(kimarite) %>%
+		arrange(-n) %>%
+		mutate(
+			freq_rank = row_number(),
+			kimarite2 = ifelse(freq_rank > 4, "other", kimarite)
+		) %>%
+		select(kimarite, kimarite2)
 )
-bout
 ```
 
 
 ```{r}
-suppressPackageStartupMessages(
-	library(plotly)
-)
-  
 bout %>%
+	# remove records with missing weight/height & omit forfeits
+	filter(complete.cases(.), kimarite != "fusen") %>%
+	# scatter plot
 	plot_ly() %>%
 	add_markers(
 		x = ~winner.weight,
 		y = ~loser.weight,
-		color = ~kimarite2
+		color = ~kimarite2,
+		hoverinfo = "text",
+		text = ~paste(shikona1, "v", shikona2, paste0("(", basho, ")"))
+	) %>%
+	layout(
+		xaxis = list(
+			title = "Winner's weight"
+		),
+		yaxis = list(
+			title = "Loser's weight"
+		)
 	)
 ```
