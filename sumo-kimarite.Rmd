@@ -1,0 +1,106 @@
+---
+title: "Sumo Kimarite"
+output: html_notebook
+---
+
+Functions to interface with [Sumo Reference](http://sumodb.sumogames.de/):
+```{r}
+source("sumodb.R")
+```
+
+&nbsp;  
+&nbsp;  
+&nbsp;  
+[Makuuchi](https://en.wikipedia.org/wiki/Makuuchi) (top division) results in 2016:
+```{r}
+bout <- sumodbBoutQuery(basho = "2016", division = "m")
+```
+
+&nbsp;  
+&nbsp;  
+&nbsp;  
+Most frequent [kimarite](https://en.wikipedia.org/wiki/Kimarite) is `r sprintf("%s", (bout %>% count(kimarite) %>% arrange(-n))[1, 1])` --- `r sprintf("%.1f%%", (bout %>% count(kimarite) %>% arrange(-n))[1, 2] / nrow(bout) * 100)` of all bouts (including [fusen](https://en.wiktionary.org/wiki/fusen)):
+```{r}
+bout %>% count(kimarite) %>% arrange(-n)
+```
+
+&nbsp;  
+&nbsp;  
+&nbsp;  
+[Banzuke](https://en.wikipedia.org/wiki/Banzuke) for each tournament:
+```{r}
+banzuke <- do.call(
+	rbind,
+	lapply(
+		c("01", "03", "05", "07", "09", "11"),
+		function(x) sumodbBanzukeQuery(paste0("2016", x)) %>% mutate(basho = paste("2016", x, sep = "."))
+	)
+) %>%
+	setNames(tolower(names(.))) %>%
+	select(
+		basho,
+		rikishi,
+		`height/weight`
+	) %>%
+	mutate(
+		height = as.numeric(str_match(`height/weight`, "([0-9.]+) cm")[, 2]),
+		weight = as.numeric(str_match(`height/weight`, "([0-9.]+) kg")[, 2])
+	) %>%
+	select(-`height/weight`)
+banzuke
+```
+
+&nbsp;  
+&nbsp;  
+&nbsp;  
+Add height/weight data to bout results:
+```{r}
+suppressMessages(
+	bout <- left_join(
+		left_join(
+			bout %>% mutate(rikishi = ifelse(win1 == 1, shikona1, shikona2)),
+			banzuke
+		) %>%
+			rename(winner.height = height, winner.weight = weight) %>%
+			mutate(rikishi = ifelse(win1 == 0, shikona1, shikona2)),
+		banzuke
+	) %>%
+		rename(loser.height = height, loser.weight = weight)
+)
+bout
+```
+
+&nbsp;  
+&nbsp;  
+&nbsp;  
+Bundle less frequent kimarite as *other*:
+```{r}
+suppressMessages(
+	bout <- inner_join(
+		bout,
+		bout %>%
+			count(kimarite) %>%
+			arrange(-n) %>%
+			mutate(
+				freq_rank = row_number(),
+				kimarite2 = ifelse(freq_rank > 7, "other", kimarite)
+			)
+	)
+)
+bout
+```
+
+
+```{r}
+suppressPackageStartupMessages(
+	library(plotly)
+)
+  
+bout %>%
+	plot_ly() %>%
+	add_markers(
+		x = ~winner.weight,
+		y = ~loser.weight,
+		color = ~kimarite2
+	)
+```
