@@ -1,46 +1,61 @@
 ---
-title: "Sumo Kimarite"
+title: "Distribution of kimarite (winning techniques) by weight and height of rikishi (sumo wrestlers)"
 output: html_notebook
 ---
 
-Functions to interface with [Sumo Reference](http://sumodb.sumogames.de/):
 ```{r, message=FALSE, warning=FALSE}
-source("sumodb.R")
-```
-
-```{r, message=FALSE, warning=FALSE}
+library(dplyr)
 library(plotly)
+options(stringsAsFactors = FALSE)
 ```
 
-
 &nbsp;  
 &nbsp;  
 &nbsp;  
-Time period we'll be looking at:
+Three years, `r 3 * 6` tournaments:
 ```{r}
-year <- 2015:2016
+tournament <- apply(
+	expand.grid(
+		2014:2016, # years
+		sprintf("%02d", seq(1, 11, 2)) # six tournaments a year
+	),
+	1,
+	paste, collapse = "."
+)
+  
+m <- matrix(tournament[order(tournament)], ncol = 6, byrow = TRUE)
+  
+prmatrix(
+	m,
+	rowlab = rep("", ncol(m)),
+	collab = rep("", ncol(m)),
+	quote = FALSE
+)
+
 ```
 
 &nbsp;  
 &nbsp;  
 &nbsp;  
-[Makuuchi](https://en.wikipedia.org/wiki/Makuuchi) (top division) results in `r min(year)`---`r max(year)`:
+Fetch [makuuchi](https://en.wikipedia.org/wiki/Makuuchi) (top division) results from [Cervus1983/sumodb](https://github.com/Cervus1983/sumodb) repository:
 ```{r}
 bout <- do.call(
 	rbind,
 	lapply(
-		year,
-		function(x) sumodbBoutQuery(basho = x, division = "m")
+		tournament,
+		function(x) read.csv(
+			paste0("https://raw.githubusercontent.com/Cervus1983/sumodb/master/CSV/", x, ".results.csv")
+		)
 	)
 )
   
-head(bout)
+bout
 ```
 
 &nbsp;  
 &nbsp;  
 &nbsp;  
-Most frequent [kimarite](https://en.wikipedia.org/wiki/Kimarite) is `r sprintf("%s", (bout %>% count(kimarite) %>% arrange(-n))[1, 1])` --- `r sprintf("%.1f%%", (bout %>% count(kimarite) %>% arrange(-n))[1, 2] / nrow(bout) * 100)` of all bouts (including [fusen](https://en.wiktionary.org/wiki/fusen)):
+Most frequent [kimarite](https://en.wikipedia.org/wiki/Kimarite) is `r sprintf("%s", (bout %>% count(kimarite) %>% arrange(-n))[1, 1])` --- `r sprintf("%.1f%%", (bout %>% count(kimarite) %>% arrange(-n))[1, 2] / nrow(bout) * 100)` of all bouts (including forfeits --- [fusen](https://en.wiktionary.org/wiki/fusen)):
 ```{r}
 bout %>% count(kimarite) %>% arrange(-n)
 ```
@@ -53,68 +68,55 @@ bout %>% count(kimarite) %>% arrange(-n)
 banzuke <- do.call(
 	rbind,
 	lapply(
-		apply(
-			expand.grid(
-				year,
-				# six tournaments a year
-				c("01", "03", "05", "07", "09", "11")
-			), 1, paste, collapse = ""
-		),
-		function(x) sumodbBanzukeQuery(x) %>%
-			# change <yyyymm> to <yyyy.mm> to easily join with bout data
-			mutate(basho = gsub("^(.{4})(.{2})$", "\\1\\.\\2", x))
-	)
-) %>%
-	setNames(tolower(names(.))) %>%
-	select(
-		basho,
-		rikishi,
-		`height/weight`
-	) %>%
-	mutate(
-		height = as.numeric(str_match(`height/weight`, "([0-9.]+) cm")[, 2]),
-		weight = as.numeric(str_match(`height/weight`, "([0-9.]+) kg")[, 2])
-	) %>%
-	select(-`height/weight`)
-  
-head(banzuke)
-```
-
-&nbsp;  
-&nbsp;  
-&nbsp;  
-Weight distribution:
-```{r}
-banzuke %>%
-	group_by(rikishi) %>%
-	summarise(weight = mean(weight)) %>%
-	plot_ly() %>%
-	add_histogram(x = ~weight) %>%
-	layout(
-		xaxis = list(
-			title = "Weight (kg)"
-		),
-		yaxis = list(
-			showgrid = FALSE,
-			showticklabels = FALSE
+		tournament,
+		function(x) read.csv(
+			paste0("https://raw.githubusercontent.com/Cervus1983/sumodb/master/CSV/", x, ".banzuke.csv")
 		)
 	)
+)
+  
+banzuke
 ```
 
 &nbsp;  
 &nbsp;  
 &nbsp;  
-Height distribution:
+Height & weight distribution:
 ```{r}
 banzuke %>%
 	group_by(rikishi) %>%
 	summarise(height = mean(height)) %>%
-	plot_ly() %>%
-	add_histogram(x = ~height) %>%
+	plot_ly(width = 910) %>%
+	add_histogram(
+		x = ~height,
+		xbins = list(
+			start = floor(min(banzuke$height)),
+			end = ceiling(max(banzuke$height)),
+			size = 1
+		)
+	) %>%
 	layout(
-		xaxis = list(
-			title = "Height (cm)"
-		),
+		xaxis = list(title = "Height (cm)"),
+		yaxis = list(
+			showgrid = FALSE,
+			showticklabels = FALSE
+		)
+	)
+
+banzuke %>%
+	group_by(rikishi) %>%
+	summarise(weight = mean(weight)) %>%
+	plot_ly(width = 910) %>%
+	add_histogram(
+		x = ~weight,
+		xbins = list(
+			start = floor(min(banzuke$weight)),
+			end = ceiling(max(banzuke$weight)),
+			size = 5
+		)
+	) %>%
+	layout(
+		xaxis = list(title = "Weight (kg)"),
 		yaxis = list(
 			showgrid = FALSE,
 			showticklabels = FALSE
@@ -125,51 +127,62 @@ banzuke %>%
 &nbsp;  
 &nbsp;  
 &nbsp;  
-Add height/weight data to bout results:
+Add height & weight data to bout results, group less frequent kimarite as *other*, and plot kimarite distribution:
 ```{r, message=FALSE}
-bout <- left_join(
+bout2 <- left_join(
 	left_join(
 		bout %>% mutate(rikishi = ifelse(win1 == 1, shikona1, shikona2)),
 		banzuke
 	) %>%
+		select(-rank) %>%
 		rename(winner.height = height, winner.weight = weight) %>%
 		mutate(rikishi = ifelse(win1 == 0, shikona1, shikona2)),
 	banzuke
 ) %>%
+	select(-rank) %>%
 	rename(loser.height = height, loser.weight = weight)
-```
-
-&nbsp;  
-&nbsp;  
-&nbsp;  
-Bundle less frequent kimarite as *other*:
-```{r, message=FALSE}
-bout <- inner_join(
-	bout,
-	bout %>%
+  
+bout3 <- inner_join(
+	bout2,
+	bout2 %>%
 		count(kimarite) %>%
 		arrange(-n) %>%
 		mutate(
 			freq_rank = row_number(),
-			kimarite2 = ifelse(freq_rank > 4, "other", kimarite)
+			kimarite2 = ifelse(freq_rank > 7, "other", kimarite) # top 7 kimarite, everything else as "other"
 		) %>%
 		select(kimarite, kimarite2)
-)
-```
+) %>% filter(
+		complete.cases(.), # omit records with missing weight/height
+		kimarite != "fusen" # omit forfeits
+	)
+  
+bout3 %>%
+	plot_ly(width = 910) %>%
+	add_markers(
+		x = ~winner.height,
+		y = ~loser.height,
+		color = ~kimarite2,
+		hoverinfo = "text",
+		text = ~paste(shikona1, "v", shikona2, paste0("(", basho, ")"))
+	) %>%
+	layout(
+		xaxis = list(
+			title = "Winner's height"
+		),
+		yaxis = list(
+			title = "Loser's height"
+		)
+	)
 
-
-```{r}
-bout %>%
-	# remove records with missing weight/height & omit forfeits
-	filter(complete.cases(.), kimarite != "fusen") %>%
-	# scatter plot
-	plot_ly() %>%
+bout3 %>%
+	plot_ly(width = 910) %>%
 	add_markers(
 		x = ~winner.weight,
 		y = ~loser.weight,
 		color = ~kimarite2,
 		hoverinfo = "text",
-		text = ~paste(shikona1, "v", shikona2, paste0("(", basho, ")"))
+		text = ~paste(basho, "~", shikona1, "v", shikona2, "~", kimarite)
 	) %>%
 	layout(
 		xaxis = list(
@@ -180,3 +193,5 @@ bout %>%
 		)
 	)
 ```
+
+&nbsp;  
