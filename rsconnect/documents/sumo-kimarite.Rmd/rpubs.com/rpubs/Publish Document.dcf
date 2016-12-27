@@ -1,0 +1,8 @@
+name: Publish Document
+title:
+account: rpubs
+server: rpubs.com
+appId: https://api.rpubs.com/api/v1/document/237852/dfe7e8dcaa164afb95a983348adc2440
+bundleId: https://api.rpubs.com/api/v1/document/237852/dfe7e8dcaa164afb95a983348adc2440
+url: http://rpubs.com/Cervus1983/237852
+when: 1482871872.44913
