@@ -164,7 +164,7 @@ bout3 %>%
 		y = ~loser.height,
 		color = ~kimarite2,
 		hoverinfo = "text",
-		text = ~paste(shikona1, "v", shikona2, paste0("(", basho, ")"))
+		text = ~paste(basho, "~", shikona1, "v", shikona2, "~", kimarite)
 	) %>%
 	layout(
 		xaxis = list(
